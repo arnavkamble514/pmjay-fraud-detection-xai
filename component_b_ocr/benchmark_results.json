@@ -1,0 +1,18 @@
+[
+  {
+    "config": "raw",
+    "images_processed": 40,
+    "mean_confidence": 0.8670799781641128,
+    "mean_low_conf_ratio": 0.043382462792138976,
+    "mean_field_recovery": 0.75,
+    "mean_seconds_per_image": 9.199524700641632
+  },
+  {
+    "config": "with preprocessing",
+    "images_processed": 40,
+    "mean_confidence": 0.8440098635941835,
+    "mean_low_conf_ratio": 0.048795549086324275,
+    "mean_field_recovery": 0.73125,
+    "mean_seconds_per_image": 9.377354842424392
+  }
+]

@@ -1,0 +1,14 @@
+torch
+torchvision
+easyocr
+xgboost
+shap
+scikit-learn
+pandas
+numpy
+opencv-python
+pillow
+matplotlib
+kaggle
+jupyter
+python-dotenv

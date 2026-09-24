@@ -1,0 +1,24 @@
+# Secrets
+.env
+.kaggle/
+kaggle.json
+
+# Virtual environment
+claimguard-env/
+
+# Downloaded datasets
+data/
+*/data/
+
+# Trained model weights (too large for git)
+*.pth
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS
+Thumbs.db
+.DS_Store
