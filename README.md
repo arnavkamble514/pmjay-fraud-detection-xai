@@ -45,3 +45,16 @@ first time it's run — nothing to download by hand.
   `tamper_cnn.py` with an importable `score_tamper()` function
 - `component_a_features/feature_blueprint.md` — written list of which
   engineered features to build into the synthetic PM-JAY dataset
+
+
+## Progress
+
+| Component | Status | Result |
+|---|---|---|
+| B — OCR pipeline | Done | Mean confidence 0.844, low-confidence line ratio 0.049, field recovery 0.731 (40-image sample, with preprocessing) |
+| C — Tamper CNN | Code ready | Training pending |
+| A — Feature blueprint | Code ready | Not run yet |
+
+**Dataset note:** the OCR dataset originally cited in the synopsis was removed from Kaggle. Component B now uses
+[Noisy Medical Document Images](https://www.kaggle.com/datasets/devp1866/noisy-medical-document-images-ocr)
+(500 hospital bills + 500 discharge summaries with JSON annotations).
