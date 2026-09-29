@@ -1,0 +1,122 @@
+[
+  {
+    "epoch": 1,
+    "train_loss": 0.2703745351352013,
+    "seconds": 39.7,
+    "accuracy": 0.9048,
+    "auc": 0.9745,
+    "precision": 0.8209,
+    "recall": 0.9742,
+    "f1": 0.891
+  },
+  {
+    "epoch": 2,
+    "train_loss": 0.19870252649178355,
+    "seconds": 40.4,
+    "accuracy": 0.8973,
+    "auc": 0.9744,
+    "precision": 0.9083,
+    "recall": 0.8262,
+    "f1": 0.8653
+  },
+  {
+    "epoch": 3,
+    "train_loss": 0.1742964086259021,
+    "seconds": 40.6,
+    "accuracy": 0.8537,
+    "auc": 0.9719,
+    "precision": 0.9231,
+    "recall": 0.6912,
+    "f1": 0.7905
+  },
+  {
+    "epoch": 4,
+    "train_loss": 0.15531169201660455,
+    "seconds": 40.3,
+    "accuracy": 0.9179,
+    "auc": 0.978,
+    "precision": 0.8509,
+    "recall": 0.9633,
+    "f1": 0.9036
+  },
+  {
+    "epoch": 5,
+    "train_loss": 0.14533548321083242,
+    "seconds": 39.6,
+    "accuracy": 0.8775,
+    "auc": 0.9708,
+    "precision": 0.9077,
+    "recall": 0.7716,
+    "f1": 0.8341
+  },
+  {
+    "epoch": 6,
+    "train_loss": 0.13341570289431232,
+    "seconds": 39.6,
+    "accuracy": 0.9108,
+    "auc": 0.982,
+    "precision": 0.9213,
+    "recall": 0.8491,
+    "f1": 0.8837
+  },
+  {
+    "epoch": 7,
+    "train_loss": 0.1324207468568877,
+    "seconds": 55.3,
+    "accuracy": 0.9215,
+    "auc": 0.9781,
+    "precision": 0.8608,
+    "recall": 0.9583,
+    "f1": 0.907
+  },
+  {
+    "epoch": 8,
+    "train_loss": 0.11912446410893165,
+    "seconds": 54.1,
+    "accuracy": 0.9298,
+    "auc": 0.9865,
+    "precision": 0.9021,
+    "recall": 0.9245,
+    "f1": 0.9132
+  },
+  {
+    "epoch": 9,
+    "train_loss": 0.12000617957066743,
+    "seconds": 50.3,
+    "accuracy": 0.9243,
+    "auc": 0.9791,
+    "precision": 0.8864,
+    "recall": 0.9295,
+    "f1": 0.9074
+  },
+  {
+    "epoch": 10,
+    "train_loss": 0.11453825090371376,
+    "seconds": 40.5,
+    "accuracy": 0.9247,
+    "auc": 0.9866,
+    "precision": 0.9295,
+    "recall": 0.8779,
+    "f1": 0.903
+  },
+  {
+    "epoch": 11,
+    "train_loss": 0.10728372313197387,
+    "seconds": 40.7,
+    "accuracy": 0.9199,
+    "auc": 0.9809,
+    "precision": 0.9103,
+    "recall": 0.8868,
+    "f1": 0.8984
+  },
+  {
+    "epoch": 12,
+    "train_loss": 0.09147184755870193,
+    "seconds": 44.3,
+    "accuracy": 0.9366,
+    "auc": 0.9863,
+    "precision": 0.8984,
+    "recall": 0.9484,
+    "f1": 0.9227
+  }
+]

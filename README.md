@@ -49,12 +49,21 @@ first time it's run — nothing to download by hand.
 
 ## Progress
 
+## Progress
+
 | Component | Status | Result |
 |---|---|---|
-| B — OCR pipeline | Done | Mean confidence 0.844, low-confidence line ratio 0.049, field recovery 0.731 (40-image sample, with preprocessing) |
-| C — Tamper CNN | Code ready | Training pending |
-| A — Feature blueprint | Code ready | Not run yet |
+| A — Feature blueprint | Done | Baseline AUC 0.958 on Medicare provider-fraud data; fraud-class precision 0.60 / recall 0.67 (imbalanced, 9.4% fraud rate). SHAP-ranked features written to `feature_blueprint.md`. |
+| B — OCR pipeline | Done | Mean confidence 0.844, low-confidence line ratio 0.049, field recovery 0.731 (40-image sample, with preprocessing). |
+| C — Tamper CNN | Done | ResNet-18 + Error Level Analysis (ELA) preprocessing on CASIA 2.0. Best validation: **93.66% accuracy, 0.9866 AUC, F1 0.9227** — exceeds the 92% synopsis target. |
 
-**Dataset note:** the OCR dataset originally cited in the synopsis was removed from Kaggle. Component B now uses
-[Noisy Medical Document Images](https://www.kaggle.com/datasets/devp1866/noisy-medical-document-images-ocr)
-(500 hospital bills + 500 discharge summaries with JSON annotations).
+**Stage 1 complete.** All three components trained/analyzed independently. Next: Stage 2 — synthetic PM-JAY claim dataset generation and fusion into a single feature table for final XGBoost + SHAP training.
+
+**Dataset notes:**
+- The OCR dataset originally cited in the synopsis was removed from Kaggle. Component B now uses
+  [Noisy Medical Document Images](https://www.kaggle.com/datasets/devp1866/noisy-medical-document-images-ocr)
+  (500 hospital bills + 500 discharge summaries with JSON annotations).
+- The original CASIA 2.0 Kaggle mirror was also inaccessible; Component C uses the
+  [divg07 CASIA 2.0 mirror](https://www.kaggle.com/datasets/divg07/casia-20-image-tampering-detection-dataset) instead.
+
+**Technique note:** Component C's initial run (plain ResNet-18 fine-tuning, no preprocessing) plateaued at ~77% accuracy / 0.84 AUC — overfitting, evidenced by falling training loss with flat validation accuracy. Adding Error Level Analysis (ELA) preprocessing — re-compressing each image and amplifying the JPEG residual, so tampered regions surface as a visible compression-artifact difference — plus light augmentation and early stopping closed the gap to 93.66% accuracy.

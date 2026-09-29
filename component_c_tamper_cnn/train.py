@@ -25,7 +25,29 @@ from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, models, transforms
 
-DATASET = "sophiay/casia-20-image-tampering-dataset"
+import io
+import numpy as np
+from PIL import Image
+
+
+def ela_loader(path, quality=90, scale=15):
+    """Error Level Analysis: re-compress the image and amplify the
+    difference. Tampered regions were compressed a second/different
+    time and show up as a brighter residual than untouched areas."""
+    original = Image.open(path).convert("RGB")
+    buffer = io.BytesIO()
+    original.save(buffer, "JPEG", quality=quality)
+    buffer.seek(0)
+    resaved = Image.open(buffer).convert("RGB")
+
+    orig_arr = np.asarray(original, dtype=np.int16)
+    resaved_arr = np.asarray(resaved, dtype=np.int16)
+    diff = np.abs(orig_arr - resaved_arr) * scale
+    diff = np.clip(diff, 0, 255).astype(np.uint8)
+    return Image.fromarray(diff)
+
+
+DATASET = "divg07/casia-20-image-tampering-detection-dataset"
 HERE = Path(__file__).parent
 DATA_DIR = HERE / "data"
 WEIGHTS = HERE / "tamper_cnn.pth"
@@ -72,11 +94,11 @@ def find_class_root(data_dir):
 
 
 def build_loaders(root):
-    # Tampering artifacts are pixel-level, so we avoid aggressive
-    # augmentation that would smear exactly the evidence we need.
     train_tf = transforms.Compose([
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
@@ -86,7 +108,7 @@ def build_loaders(root):
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    full = datasets.ImageFolder(root, transform=train_tf)
+    full = datasets.ImageFolder(root, transform=train_tf, loader=ela_loader)
     print(f"Classes found: {full.classes}  (total {len(full)} images)")
 
     n_val = int(len(full) * VAL_SPLIT)
@@ -95,7 +117,7 @@ def build_loaders(root):
         full, [n_train, n_val],
         generator=torch.Generator().manual_seed(42),
     )
-    val_ds.dataset = datasets.ImageFolder(root, transform=val_tf)
+    val_ds.dataset = datasets.ImageFolder(root, transform=val_tf, loader=ela_loader)
 
     return (
         DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2),
@@ -149,7 +171,7 @@ def main():
         optimizer, mode="max", factor=0.5, patience=2
     )
 
-    history, best_auc = [], 0.0
+    history, best_auc, patience_left = [], 0.0, 4
 
     for epoch in range(1, EPOCHS + 1):
         model.train()
@@ -182,6 +204,7 @@ def main():
 
         if metrics["auc"] > best_auc:
             best_auc = metrics["auc"]
+            patience_left = 4
             torch.save(
                 {"state_dict": model.state_dict(),
                  "classes": classes,
@@ -190,6 +213,11 @@ def main():
                 WEIGHTS,
             )
             print(f"  saved new best -> {WEIGHTS.name}")
+        else:
+            patience_left -= 1
+            if patience_left == 0:
+                print(f"  no AUC improvement in 4 epochs, stopping early.")
+                break
 
     METRICS.write_text(json.dumps(history, indent=2))
     print(f"\nBest validation AUC: {best_auc:.4f}")
