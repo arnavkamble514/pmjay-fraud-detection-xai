@@ -67,3 +67,37 @@ first time it's run — nothing to download by hand.
   [divg07 CASIA 2.0 mirror](https://www.kaggle.com/datasets/divg07/casia-20-image-tampering-detection-dataset) instead.
 
 **Technique note:** Component C's initial run (plain ResNet-18 fine-tuning, no preprocessing) plateaued at ~77% accuracy / 0.84 AUC — overfitting, evidenced by falling training loss with flat validation accuracy. Adding Error Level Analysis (ELA) preprocessing — re-compressing each image and amplifying the JPEG residual, so tampered regions surface as a visible compression-artifact difference — plus light augmentation and early stopping closed the gap to 93.66% accuracy.
+
+
+
+## Stage 2 — Synthetic Data, Fusion, Final Model
+
+Stage 1's three components are trained once on public data and are not retrained here — Stage 2 reuses them as scoring tools on a self-generated dataset, since no real row-level PM-JAY claims dataset is publicly available.
+
+| Step | Script | Output |
+|---|---|---|
+| 1. Synthetic claim generation | `stage2/generate_synthetic_claims.py` | 3,000 claims (18.4% fraud), each with a matching generated bill image |
+| 2. Fusion | `stage2/fuse_features.py` | Runs Component B (OCR) and Component C (tamper CNN) over every bill image, merges with structured claim fields into one table |
+| 3. Final model | `stage2/train_final_model.py` | XGBoost + SHAP trained on the fused table |
+
+**Fraud patterns injected (with ground truth known, since we generated it):**
+- Upcoding — claimed amount inflated relative to the PM-JAY package rate
+- Phantom billing — billed for a longer stay than actually documented
+- Impossible length-of-stay — stay duration far beyond what the procedure requires
+- Document tampering — the bill image is pixel-edited after the fact (a real splice, in the same spirit as CASIA 2.0), independent of whether the claim record itself looks normal
+
+Genuine and fraudulent claims deliberately **overlap** in amount, length-of-stay, and image-compression characteristics (some genuine claims cost 1.25–1.7x the package rate due to real complications; some fraud is only a mild 5–15% inflation). This was a deliberate second pass — an earlier version had a clean numeric gap between genuine and fraud ranges, which let the model score a meaningless 100% accuracy by exploiting the gap rather than learning anything. Closing the overlap is what makes the current result trustworthy.
+
+**Final model result:**
+
+| Metric | Value |
+|---|---|
+| AUC | 0.928 |
+| Accuracy | 92% |
+| Fraud precision / recall | 0.78 / 0.75 |
+
+**Top SHAP features:** `amount_to_package_ratio`, `ocr_amount_mismatch_pct`, `los_ratio`, `ocr_confidence`, `tamper_score` — all three fused components (structured data, OCR, tamper CNN) contribute meaningfully, not just one dominant column.
+
+**Caveat:** this is trained and evaluated entirely on synthetic data. It demonstrates the full pipeline works end-to-end — data generation, OCR scoring, tamper scoring, fusion, final classification, SHAP explanation — not that it is validated on real-world claims. A production system would need real confirmed-fraud data from NHA and a formal retraining/monitoring pipeline before deployment.
+
+**Not yet done:** wiring the final model into the ClaimGuard dashboard mockup.
