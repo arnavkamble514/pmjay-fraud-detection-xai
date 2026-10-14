@@ -1,0 +1,267 @@
+"""
+Stage 3 — serving the final model.
+
+The one function everything else (Streamlit app, audit log, batch
+scoring) calls: give it a claim, get back a fraud score, a risk band,
+and plain-language reasons. This is the file Purva and Hitakshi build
+against, so its interface (score_claim) should not change without
+telling them.
+
+Needs, from a completed Stage 2 run in this folder:
+  final_model.json, feature_columns.json, procedure_lookup.json,
+  provider_stats.json   (all written by train_final_model.py)
+  ../component_c_tamper_cnn/tamper_cnn.pth   (only if you pass image_path)
+
+Usage:
+    from predict import score_claim
+
+    result = score_claim({
+        "patient_age": 45,
+        "procedure": "Laparoscopic cholecystectomy",
+        "diagnosis_code": "K80.2",
+        "state": "Maharashtra",
+        "provider_id": "H003",
+        "claimed_amount": 52000,
+        "length_of_stay": 3,
+    })
+    # result = {"score": 0.81, "risk_band": "high", "top_reasons": [...]}
+
+Run directly for a smoke test on a couple of made-up claims:
+    python predict.py
+"""
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import xgboost as xgb
+import shap
+
+HERE = Path(__file__).parent
+ROOT = HERE.parent
+
+MODEL_PATH = HERE / "final_model.json"
+FEATURE_COLUMNS_PATH = HERE / "feature_columns.json"
+PROCEDURE_LOOKUP_PATH = HERE / "procedure_lookup.json"
+PROVIDER_STATS_PATH = HERE / "provider_stats.json"
+
+CATEGORICAL = ["diagnosis_code", "procedure", "state"]
+IMAGE_FEATURES = {"tamper_score", "ocr_confidence", "ocr_amount_mismatch_pct", "ocr_amount_found"}
+
+# score -> band. Lower the top edge if you want to catch more fraud
+# at the cost of more false alarms (see Parth's threshold-tuning task).
+RISK_BANDS = [(0.30, "low"), (0.60, "medium"), (1.01, "high")]
+
+# technical feature name -> (human label, sentence template).
+# {value} is filled with the claim's own value for that feature.
+FEATURE_EXPLANATIONS = {
+    "amount_to_package_ratio": "claimed amount is {value:.2f}x the standard package rate",
+    "los_ratio": "length of stay is {value:.2f}x the typical stay for this procedure",
+    "tamper_score": "the bill image scores {value:.2f} on the tamper detector",
+    "ocr_confidence": "OCR could read the bill with {value:.2f} confidence",
+    "ocr_amount_mismatch_pct": "the OCR-read amount differs from the claimed amount by {value:.0%}",
+    "ocr_amount_found": "an amount could {not_}be read directly off the bill image",
+    "claimed_amount": "claimed amount is ₹{value:,.0f}",
+    "patient_age": "patient age is {value:.0f}",
+    "provider_mean_amount": "this provider's average claim is ₹{value:,.0f}",
+    "provider_claim_count": "this provider has {value:.0f} claims on record",
+    "package_rate": "standard package rate is ₹{value:,.0f}",
+    "length_of_stay": "length of stay is {value:.0f} days",
+    "typical_los": "typical stay for this procedure is {value:.0f} days",
+}
+
+
+def _load_json(path):
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path.name} not found in {path.parent}. Run train_final_model.py "
+            f"first — it writes this file alongside final_model.json."
+        )
+    return json.loads(path.read_text())
+
+
+class ClaimScorer:
+    """Loads the model once; call .score() per claim. score_claim() below
+    is a module-level convenience that reuses one shared instance."""
+
+    def __init__(self):
+        self.model = xgb.XGBClassifier()
+        self.model.load_model(MODEL_PATH)
+        self.feature_columns = _load_json(FEATURE_COLUMNS_PATH)
+        self.procedure_lookup = _load_json(PROCEDURE_LOOKUP_PATH)
+        self.provider_lookup = _load_json(PROVIDER_STATS_PATH)
+        self.explainer = shap.TreeExplainer(self.model)
+        self._tamper_model = None
+        self._tamper_img_size = None
+
+    # -- image scoring, loaded lazily so score_claim() works with no
+    #    GPU / no torch installed as long as you don't pass image_path --
+    def _score_image(self, image_path):
+        if self._tamper_model is None:
+            sys.path.insert(0, str(ROOT / "stage2"))
+            sys.path.insert(0, str(ROOT / "component_b_ocr"))
+            from fuse_features import (  # noqa: E402
+                load_tamper_model, score_tamper, parse_amount, DEVICE,
+            )
+            from ocr_pipeline import run_ocr  # noqa: E402
+            self._tamper_model, self._tamper_img_size = load_tamper_model()
+            self._run_ocr = run_ocr
+            self._parse_amount = parse_amount
+            self._score_tamper = score_tamper
+            self._device = DEVICE
+
+        tamper_score = self._score_tamper(
+            self._tamper_model, self._tamper_img_size, image_path
+        )
+        ocr_result = self._run_ocr(
+            str(image_path), use_preprocessing=True,
+            use_gpu=(self._device.type == "cuda"),
+        )
+        return tamper_score, ocr_result["mean_confidence"], ocr_result["text"]
+
+    def _build_row(self, claim, image_path=None):
+        row = dict(claim)
+
+        proc_info = self.procedure_lookup.get(row.get("procedure"), {})
+        row.setdefault("package_rate", proc_info.get("package_rate"))
+        row.setdefault("typical_los", proc_info.get("typical_los"))
+        if row.get("package_rate") is None or row.get("typical_los") is None:
+            raise ValueError(
+                f"Unknown procedure {row.get('procedure')!r} and no "
+                f"package_rate/typical_los given — can't compute ratios."
+            )
+
+        row["amount_to_package_ratio"] = row["claimed_amount"] / row["package_rate"]
+        row["los_ratio"] = row["length_of_stay"] / row["typical_los"]
+
+        provider = self.provider_lookup.get(
+            row.get("provider_id"), self.provider_lookup["__global__"]
+        )
+        row.setdefault("provider_mean_amount", provider["provider_mean_amount"])
+        row.setdefault("provider_claim_count", provider["provider_claim_count"])
+
+        # Image-derived features: use what's given, else compute from an
+        # image, else fall back to "no evidence either way" — never a
+        # value that pretends the bill was checked when it wasn't.
+        image_checked = True
+        if "tamper_score" not in row or "ocr_confidence" not in row:
+            if image_path is not None:
+                tamper_score, ocr_confidence, ocr_text = self._score_image(image_path)
+                row["tamper_score"] = tamper_score
+                row["ocr_confidence"] = ocr_confidence
+                if "ocr_amount_mismatch_pct" not in row or "ocr_amount_found" not in row:
+                    ocr_amount = self._parse_amount(ocr_text)
+                    if ocr_amount is None:
+                        row["ocr_amount_mismatch_pct"] = np.nan
+                        row["ocr_amount_found"] = 0
+                    else:
+                        row["ocr_amount_mismatch_pct"] = abs(
+                            ocr_amount - row["claimed_amount"]
+                        ) / max(row["claimed_amount"], 1)
+                        row["ocr_amount_found"] = 1
+            else:
+                # No image given and no precomputed image features: tell
+                # the model "unknown", not "clean". 0.0 is itself a real
+                # value real genuine bills score, so defaulting to it
+                # would silently look like a checked, clean bill. NaN
+                # lets XGBoost's native missing-value handling route it
+                # instead of faking evidence.
+                image_checked = False
+                row.setdefault("tamper_score", np.nan)
+                row.setdefault("ocr_confidence", np.nan)
+                row.setdefault("ocr_amount_mismatch_pct", np.nan)
+                row.setdefault("ocr_amount_found", np.nan)
+
+        return row, image_checked
+
+    def score(self, claim, image_path=None):
+        """claim: dict with at least patient_age, procedure,
+        diagnosis_code, state, provider_id, claimed_amount,
+        length_of_stay. package_rate/typical_los are filled in from the
+        training data's procedure lookup if you don't pass them.
+        Pass image_path to run OCR + tamper scoring on a real bill, or
+        pass tamper_score/ocr_confidence/etc. directly if you already
+        have them (e.g. from fuse_features.py)."""
+        row, image_checked = self._build_row(claim, image_path)
+
+        df_row = pd.DataFrame([row])
+        df_enc = pd.get_dummies(df_row[CATEGORICAL], prefix=CATEGORICAL)
+        X = pd.concat([df_row, df_enc], axis=1)
+        X = X.reindex(columns=self.feature_columns, fill_value=0)
+        X = X.infer_objects()
+
+        proba = float(self.model.predict_proba(X)[0, 1])
+        risk_band = next(band for threshold, band in RISK_BANDS if proba < threshold)
+
+        shap_values = self.explainer.shap_values(X)[0]
+        order = np.argsort(-np.abs(shap_values))
+        top_reasons = []
+        for i in order[:3]:
+            feat = self.feature_columns[i]
+            contribution = float(shap_values[i])
+            if feat in IMAGE_FEATURES and not image_checked:
+                text = "the bill image was not checked for this claim (no image provided)"
+            elif FEATURE_EXPLANATIONS.get(feat):
+                template = FEATURE_EXPLANATIONS[feat]
+                value = row.get(feat, X.iloc[0][feat])
+                text = template.format(
+                    value=0 if pd.isna(value) else value,
+                    not_="" if value else "not ",
+                )
+            else:
+                # a one-hot category column, e.g. "procedure_Angioplasty"
+                text = feat.replace("_", " ", 1).replace("_", ": ", 1)
+            top_reasons.append({
+                "feature": feat,
+                "direction": "raises risk" if contribution > 0 else "lowers risk",
+                "impact": round(abs(contribution), 3),
+                "detail": text,
+            })
+
+        return {
+            "score": round(proba, 4),
+            "risk_band": risk_band,
+            "top_reasons": top_reasons,
+            "image_checked": image_checked,
+        }
+
+
+_shared_scorer = None
+
+
+def score_claim(claim, image_path=None):
+    """Module-level convenience — loads the model once on first call."""
+    global _shared_scorer
+    if _shared_scorer is None:
+        _shared_scorer = ClaimScorer()
+    return _shared_scorer.score(claim, image_path=image_path)
+
+
+def _smoke_test():
+    samples = [
+        {
+            "patient_age": 45, "procedure": "Laparoscopic cholecystectomy",
+            "diagnosis_code": "K80.2", "state": "Maharashtra",
+            "provider_id": "H003", "claimed_amount": 52000,
+            "length_of_stay": 9,
+        },
+        {
+            "patient_age": 30, "procedure": "Appendectomy",
+            "diagnosis_code": "K35.8", "state": "Gujarat",
+            "provider_id": "H007", "claimed_amount": 19000,
+            "length_of_stay": 3,
+        },
+    ]
+    for claim in samples:
+        print(f"\nClaim: {claim}")
+        result = score_claim(claim)
+        print(f"  score={result['score']}  risk={result['risk_band']}  "
+              f"image_checked={result['image_checked']}")
+        for r in result["top_reasons"]:
+            print(f"    [{r['direction']:>11}, impact {r['impact']}] {r['detail']}")
+
+
+if __name__ == "__main__":
+    _smoke_test()

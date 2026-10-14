@@ -1,3 +1,13 @@
+"""
+Stage 2, step 3 — final model.
+
+Trains the deployable XGBoost fraud classifier on the fused feature
+table (structured claim data + OCR results + tamper CNN score), then
+runs SHAP for per-claim and global explainability. This is the model
+the ClaimGuard dashboard actually calls.
+
+Run:  python train_final_model.py
+"""
 
 import json
 from pathlib import Path
@@ -12,6 +22,9 @@ HERE = Path(__file__).parent
 FUSED_CSV = HERE / "data" / "fused_features.csv"
 MODEL_PATH = HERE / "final_model.json"
 SHAP_SUMMARY = HERE / "shap_summary.md"
+FEATURE_COLUMNS_PATH = HERE / "feature_columns.json"
+PROCEDURE_LOOKUP_PATH = HERE / "procedure_lookup.json"
+PROVIDER_STATS_PATH = HERE / "provider_stats.json"
 
 FEATURES = [
     "patient_age", "package_rate", "claimed_amount", "length_of_stay",
@@ -53,6 +66,29 @@ def main():
 
     model.save_model(MODEL_PATH)
     print(f"Model saved to {MODEL_PATH}")
+
+    # Everything predict.py needs to score a brand-new claim the same
+    # way this training run encoded one, saved alongside the model.
+    FEATURE_COLUMNS_PATH.write_text(json.dumps(list(X.columns)))
+
+    procedure_lookup = (
+        df.groupby("procedure")[["package_rate", "typical_los"]]
+        .first()
+        .to_dict(orient="index")
+    )
+    PROCEDURE_LOOKUP_PATH.write_text(json.dumps(procedure_lookup))
+
+    provider_stats = df.groupby("provider_id")["claimed_amount"].agg(
+        provider_mean_amount="mean", provider_claim_count="count"
+    )
+    provider_lookup = provider_stats.to_dict(orient="index")
+    provider_lookup["__global__"] = {
+        "provider_mean_amount": float(df["claimed_amount"].mean()),
+        "provider_claim_count": 0,
+    }
+    PROVIDER_STATS_PATH.write_text(json.dumps(provider_lookup))
+    print(f"Saved feature_columns.json, procedure_lookup.json, provider_stats.json "
+          f"for predict.py")
 
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_test)
