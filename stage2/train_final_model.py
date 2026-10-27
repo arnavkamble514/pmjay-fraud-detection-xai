@@ -31,6 +31,7 @@ FEATURES = [
     "typical_los", "amount_to_package_ratio", "los_ratio",
     "tamper_score", "ocr_confidence", "ocr_amount_mismatch_pct",
     "ocr_amount_found",
+    "noise_block_min_z", "noise_low_frac",
     "provider_mean_amount", "provider_claim_count",
 ]
 CATEGORICAL = ["diagnosis_code", "procedure", "state"]

@@ -1,17 +1,43 @@
 """
-Stage 2, step 1 — synthetic PM-JAY claim generator.
+Stage 2, step 1 — synthetic PM-JAY claim generator (v3).
 
 No public row-level PM-JAY dataset exists, so this creates a structurally
 realistic one: N claims with patient/hospital/procedure/amount fields,
 each with a matching generated "hospital bill" image. A subset of claims
 is deliberately made fraudulent using patterns real fraud detection
-literature actually documents (upcoding, phantom/duplicate billing,
-impossible length-of-stay, document tampering). Ground truth is known
-because we generated it.
+literature documents (upcoding, phantom billing, impossible
+length-of-stay, document tampering). Ground truth is known because we
+generated it.
+
+document_tamper has two subtypes, chosen at random, so OCR and the tamper
+detector each get fraud cases they should independently catch:
+  - "amount" tamper edits the printed claimed amount (OCR can catch this:
+    the read amount won't match the claim record).
+  - "field" tamper edits patient name, diagnosis, or diagnosis code and
+    leaves the amount untouched (OCR's amount check can't see it; only
+    image forensics can).
+
+v3 changes (after ela_diagnostic.py found problems with v2):
+  1. No compression shortcut. v2 re-saved tampered bills in a lower JPEG
+     quality range than genuine ones, so file quality alone separated
+     them (AUC ~0.85). Now EVERY bill is compressed twice — once when
+     "scanned", once when re-saved/uploaded — with both qualities drawn
+     from the same ranges for genuine and tampered bills.
+  2. Bills look scanned: off-white paper tint, slight blur, and sensor
+     noise are applied before the first compression. v2 bills were
+     perfectly clean white pages, so a white-out patch had nothing to
+     contrast with.
+  3. Two forger styles, ~50/50:
+       naive   — patch filled with flat paper colour, crisp new text.
+                 Leaves a noise-inconsistency trace (the patch has no
+                 scan noise) — a standard image-forensics cue.
+       careful — patch gets matching blur and noise. Only the
+                 double-compression difference remains, so these cases
+                 are deliberately hard.
 
 Outputs:
   stage2/data/claims.csv        one row per claim, structured fields + label
-  stage2/data/images/<id>.png   one bill image per claim
+  stage2/data/images/<id>.jpg   one bill image per claim
 
 Run:  python generate_synthetic_claims.py
 """
@@ -20,7 +46,9 @@ import io
 import random
 import csv
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 random.seed(42)
 
@@ -31,6 +59,10 @@ CLAIMS_CSV = DATA_DIR / "claims.csv"
 
 N_CLAIMS = 3000
 FRAUD_RATE = 0.18
+
+# compression ranges — identical for genuine and tampered bills (v3 fix)
+SCAN_QUALITY = (75, 95)     # first compression, when the bill is scanned
+RESAVE_QUALITY = (65, 92)   # second compression, upload / forward / re-save
 
 HOSPITALS = [f"{name} Multispeciality Hospital" for name in
              ["Sunrise", "Shivneri", "Jeevan", "Sahyadri", "Ashirwad",
@@ -57,6 +89,9 @@ FIRST_NAMES = ["Amit", "Priya", "Ravi", "Sneha", "Vikram", "Anjali", "Suresh",
 LAST_NAMES = ["Sharma", "Patil", "Kumar", "Singh", "Deshmukh", "Yadav",
               "Iyer", "Reddy", "Joshi", "Mishra"]
 
+# fields a "field" tamper can target, besides the amount
+TAMPERABLE_FIELDS = ["Patient Name", "Diagnosis", "Diagnosis Code"]
+
 
 def make_font(size):
     try:
@@ -66,8 +101,8 @@ def make_font(size):
 
 
 def render_bill(fields):
-    """Draw a simple hospital-bill-style image with the genuine amount.
-    Returns (image, amount_y) so a tamper edit can target the amount."""
+    """Draw a clean hospital-bill-style image. Returns (image,
+    field_positions): every printed label -> (y, value_x)."""
     W, H = 800, 600
     img = Image.new("RGB", (W, H), "white")
     draw = ImageDraw.Draw(img)
@@ -87,34 +122,74 @@ def render_bill(fields):
         ("Admission Date", fields["admission_date"]),
         ("Discharge Date", fields["discharge_date"]),
     ]
+    field_positions = {}
     y = 100
     for label, value in rows:
         draw.text((40, y), f"{label}:", font=font, fill="black")
         draw.text((280, y), value, font=font, fill="black")
+        field_positions[label] = (y, 280)
         y += 34
 
     amount_y = y + 20
     draw.line((40, amount_y - 10, 760, amount_y - 10), fill="black", width=1)
     draw.text((40, amount_y), "Amount Claimed (INR):", font=font, fill="black")
-    amount_text = f"{fields['claimed_amount']:,}"
-    draw.text((320, amount_y), amount_text, font=font, fill="black")
+    draw.text((320, amount_y), f"{fields['claimed_amount']:,}", font=font, fill="black")
+    field_positions["Amount Claimed"] = (amount_y, 320)
 
-    return img, amount_y
+    return img, field_positions
 
 
-def apply_tamper(img, amount_y, tampered_amount):
-    """A real edit: white out the true amount and redraw a different
-    figure over it, on the already-compressed image."""
-    draw = ImageDraw.Draw(img)
-    font = make_font(18)
-    draw.rectangle((315, amount_y - 4, 500, amount_y + 24), fill="white")
-    draw.text((320, amount_y), f"{tampered_amount:,}", font=font, fill="black")
+def random_scan_params():
+    base = random.randint(236, 250)
+    return {
+        "tint": tuple(min(255, base + random.randint(-2, 4)) for _ in range(3)),
+        "blur": random.uniform(0.3, 0.8),
+        "noise": random.uniform(2.0, 5.0),
+        "seed": random.randrange(2 ** 32),
+    }
+
+
+def add_noise(img, sigma, np_rng):
+    arr = np.asarray(img, dtype=np.float32)
+    noise = np_rng.normal(0.0, sigma, arr.shape[:2] + (1,))
+    return Image.fromarray(np.clip(arr + noise, 0, 255).astype(np.uint8))
+
+
+def apply_scan(img, scan, np_rng):
+    """Make a clean render look scanned: paper tint, slight blur, noise."""
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    tinted = Image.fromarray((arr * np.array(scan["tint"], dtype=np.float32)).astype(np.uint8))
+    blurred = tinted.filter(ImageFilter.GaussianBlur(scan["blur"]))
+    return add_noise(blurred, scan["noise"], np_rng)
+
+
+def apply_tamper(img, field_positions, field_label, new_value_text, scan, careful, np_rng):
+    """A real edit on the already-compressed scan: cover one printed value
+    with a patch and draw a different value on it.
+
+    naive   — patch is flat paper colour with crisp text (no scan noise).
+    careful — patch gets blur and noise close to the scan's own, so only
+              the compression-history difference is left."""
+    y, value_x = field_positions[field_label]
+    x0, y0, x1, y1 = value_x - 5, y - 4, 755, y + 24
+    patch = Image.new("RGB", (x1 - x0, y1 - y0), scan["tint"])
+    ImageDraw.Draw(patch).text((value_x - x0, y - y0), new_value_text,
+                               font=make_font(18), fill="black")
+    if careful:
+        patch = patch.filter(ImageFilter.GaussianBlur(scan["blur"] * random.uniform(0.8, 1.2)))
+        patch = add_noise(patch, scan["noise"] * random.uniform(0.8, 1.2), np_rng)
+    img = img.copy()
+    img.paste(patch, (x0, y0))
     return img
 
 
 def random_dates():
-    start_day = random.randint(1, 300)
-    return start_day
+    return random.randint(1, 300)
+
+
+def pick_different(current, options):
+    choices = [o for o in options if o != current]
+    return random.choice(choices) if choices else current
 
 
 def generate_claim(claim_id, fraud_pool_state):
@@ -131,12 +206,13 @@ def generate_claim(claim_id, fraud_pool_state):
 
     fraud_type = "none"
     is_fraud = 0
-    tampered_amount = None
+    is_tampered = False
+    tamper_field = None
+    tamper_new_value = None
+    tamper_style = None
 
-    # Genuine claims aren't all identical: some legitimately have
-    # complications (higher cost, longer stay) without being fraud.
-    # These deliberately reach into the same numeric territory as mild
-    # fraud below, so the model can't just threshold on the ratio.
+    # Some genuine claims legitimately cost more / stay longer
+    # (complications) — deliberately overlapping mild fraud ranges.
     if random.random() < 0.08:
         claimed_amount = int(package_rate * random.uniform(1.25, 1.7))
         los = max(los, int(typical_los * random.uniform(1.3, 2.2)))
@@ -150,12 +226,10 @@ def generate_claim(claim_id, fraud_pool_state):
             ["upcoding", "phantom_billing", "impossible_los", "document_tamper"]
         )
         if fraud_type == "upcoding":
-            # overlaps the genuine "complicated case" range above —
-            # a ratio alone can't separate them
             claimed_amount = int(package_rate * random.uniform(1.15, 2.5))
         elif fraud_type == "phantom_billing":
+            # amount inflated while the documented stay is shorter than typical
             claimed_amount = int(package_rate * random.uniform(1.05, 1.6))
-            # shorter than typical, but not always a fixed giveaway of 1
             los = max(1, typical_los - random.randint(0, 2))
             discharge_day = admission_day + los
         elif fraud_type == "impossible_los":
@@ -163,9 +237,23 @@ def generate_claim(claim_id, fraud_pool_state):
             discharge_day = admission_day + los
             claimed_amount = int(package_rate * random.uniform(1.1, 2.0))
         elif fraud_type == "document_tamper":
-            # the claim record looks fine; the bill IMAGE is altered —
-            # sometimes by a lot, sometimes just a subtle nudge
-            tampered_amount = int(claimed_amount * random.uniform(1.05, 1.7))
+            # the claim RECORD stays correct — only the bill image is forged
+            is_tampered = True
+            tamper_style = "careful" if random.random() < 0.5 else "naive"
+            if random.random() < 0.5:
+                tamper_field = "Amount Claimed"
+                tamper_new_value = f"{int(claimed_amount * random.uniform(1.05, 1.7)):,}"
+            else:
+                tamper_field = random.choice(TAMPERABLE_FIELDS)
+                if tamper_field == "Patient Name":
+                    forged = patient_name
+                    while forged == patient_name:
+                        forged = f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
+                    tamper_new_value = forged
+                elif tamper_field == "Diagnosis":
+                    tamper_new_value = pick_different(diagnosis, [p[0] for p in PROCEDURES])
+                else:
+                    tamper_new_value = pick_different(code, [p[2] for p in PROCEDURES])
 
     fields = {
         "claim_id": f"CLM{claim_id:06d}",
@@ -196,27 +284,28 @@ def generate_claim(claim_id, fraud_pool_state):
         "los_ratio": round(los / typical_los, 3),
         "is_fraud": is_fraud,
         "fraud_type": fraud_type,
-        "image_tampered": 1 if tampered_amount is not None else 0,
+        "image_tampered": 1 if is_tampered else 0,
+        "tamper_field": tamper_field or "",
+        "tamper_style": tamper_style or "",
         "image_path": f"images/{fields['claim_id']}.jpg",
     }
 
-    # Give every bill a JPEG history, like real scanned/photographed
-    # documents (and like CASIA). Genuine: compressed at q90, saved at
-    # q90. Tampered: edited after the first compression, then re-saved
-    # at a different quality — the double-compression trace ELA reads.
-    img, amount_y = render_bill(fields)
-    first_pass_quality = random.randint(78, 95)
+    # Every bill: render -> scan (tint, blur, noise) -> first JPEG
+    # compression -> [edit, if tampered] -> second compression on save.
+    # Both qualities come from the same ranges for every bill, so the
+    # compression history itself never reveals the label.
+    scan = random_scan_params()
+    np_rng = np.random.default_rng(scan["seed"])
+    img, field_positions = render_bill(fields)
+    img = apply_scan(img, scan, np_rng)
     buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=first_pass_quality)
+    img.save(buf, "JPEG", quality=random.randint(*SCAN_QUALITY))
     buf.seek(0)
     img = Image.open(buf).convert("RGB")
-    if tampered_amount is not None:
-        img = apply_tamper(img, amount_y, tampered_amount)
-        # re-saved after editing, at an independently random quality —
-        # overlaps the genuine range, so quality alone isn't a tell
-        save_quality = random.randint(65, 88)
-    else:
-        save_quality = first_pass_quality
+    if is_tampered:
+        img = apply_tamper(img, field_positions, tamper_field, tamper_new_value,
+                           scan, tamper_style == "careful", np_rng)
+    save_quality = random.randint(*RESAVE_QUALITY)
     return row, img, save_quality
 
 
@@ -236,8 +325,15 @@ def main():
         writer.writerows(rows)
 
     n_fraud = sum(r["is_fraud"] for r in rows)
+    tampered = [r for r in rows if r["image_tampered"]]
+    n_amount = sum(1 for r in tampered if r["tamper_field"] == "Amount Claimed")
+    n_careful = sum(1 for r in tampered if r["tamper_style"] == "careful")
     print(f"\nWrote {len(rows)} claims to {CLAIMS_CSV}")
     print(f"Fraud rate: {n_fraud}/{len(rows)} ({n_fraud/len(rows):.1%})")
+    print(f"Tampered bills: {len(tampered)} "
+          f"({n_amount} amount edits, OCR-catchable; "
+          f"{len(tampered) - n_amount} other-field edits, image-forensics-only)")
+    print(f"Forger style: {len(tampered) - n_careful} naive, {n_careful} careful")
     print(f"Images saved to {IMG_DIR}")
 
 

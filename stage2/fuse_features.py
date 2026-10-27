@@ -35,8 +35,26 @@ FUSED_CSV = DATA_DIR / "fused_features.csv"
 TAMPER_WEIGHTS = ROOT / "component_c_tamper_cnn" / "tamper_cnn.pth"
 sys.path.insert(0, str(ROOT / "component_b_ocr"))
 from ocr_pipeline import run_ocr, extract_claim_fields  # noqa: E402
+from forensics import forensic_features, FORENSIC_FEATURES  # noqa: E402
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# OCR reads the bill at 3x size. Measured on 60 genuine v3 bills
+# (upscale_test.py): exact amount reads 28% at 1x, 83% at 2x, 93% at 3x.
+# Only OCR is upscaled; tamper CNN and forensics still see the original
+# image, since resizing would destroy the noise pattern they look at.
+OCR_SCALE = 3
+
+
+def run_ocr_upscaled(image_path, scale=OCR_SCALE):
+    import tempfile
+    img = Image.open(image_path).convert("RGB")
+    big = img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "bill.png"
+        big.save(p)
+        return run_ocr(str(p), use_preprocessing=True,
+                       use_gpu=(DEVICE.type == "cuda"))
 
 
 # ---- tamper scoring (mirrors component_c_tamper_cnn/train.py) ----
@@ -116,14 +134,15 @@ def main():
     ocr_confidences = []
     ocr_amount_mismatches = []
     ocr_found = []
+    forensic_rows = []
 
     for i, row in df.iterrows():
         image_path = DATA_DIR / row["image_path"]
 
         tamper_scores.append(score_tamper(tamper_model, img_size, image_path))
+        forensic_rows.append(forensic_features(image_path))
 
-        ocr_result = run_ocr(str(image_path), use_preprocessing=True,
-                              use_gpu=(DEVICE.type == "cuda"))
+        ocr_result = run_ocr_upscaled(image_path)
         ocr_confidences.append(ocr_result["mean_confidence"])
 
         ocr_amount = parse_amount(ocr_result["text"])
@@ -142,6 +161,9 @@ def main():
     df["ocr_confidence"] = ocr_confidences
     df["ocr_amount_mismatch_pct"] = ocr_amount_mismatches
     df["ocr_amount_found"] = ocr_found
+    forensic_df = pd.DataFrame(forensic_rows, columns=FORENSIC_FEATURES)
+    for col in FORENSIC_FEATURES:
+        df[col] = forensic_df[col].values
 
     # provider-level rolling stats, same spirit as Component A's features
     provider_stats = df.groupby("provider_id")["claimed_amount"].agg(

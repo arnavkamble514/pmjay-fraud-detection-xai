@@ -1,8 +1,8 @@
 # Model Evaluation — Cross-Validation and Threshold Tuning
 
-5-fold stratified cross-validation, 3000 claims, fraud rate 18.4%.
+5-fold stratified cross-validation, 3000 claims, fraud rate 19.4%.
 
-**Cross-validated AUC: 0.9380 +/- 0.0154** (per-fold: 0.9077, 0.9411, 0.9486, 0.9439, 0.9486)
+**Cross-validated AUC: 0.9160 +/- 0.0060** (per-fold: 0.9149, 0.9223, 0.9172, 0.9051, 0.9203)
 
 This holds up across folds, compared to the single-split AUC reported by train_final_model.py.
 
@@ -10,23 +10,31 @@ This holds up across folds, compared to the single-split AUC reported by train_f
 
 | Threshold | Precision | Recall | F1 | Claims flagged |
 |---|---|---|---|---|
-| 0.30 | 0.691 | 0.829 | 0.754 | 661 |
-| 0.35 | 0.731 | 0.819 | 0.772 | 617 |
-| 0.40 | 0.769 | 0.809 | 0.789 | 580 | **<- recommended**
-| 0.45 | 0.797 | 0.799 | 0.798 | 552 |
-| 0.50 | 0.813 | 0.789 | 0.801 | 535 |
-| 0.55 | 0.835 | 0.780 | 0.807 | 515 |
-| 0.60 | 0.840 | 0.770 | 0.803 | 505 |
-| 0.65 | 0.873 | 0.759 | 0.812 | 479 |
-| 0.70 | 0.887 | 0.740 | 0.807 | 460 |
+| 0.10 | 0.388 | 0.900 | 0.543 | 1349 |
+| 0.15 | 0.455 | 0.869 | 0.597 | 1113 |
+| 0.20 | 0.529 | 0.845 | 0.651 | 930 |
+| 0.25 | 0.605 | 0.820 | 0.696 | 788 | **<- recommended**
+| 0.30 | 0.654 | 0.797 | 0.718 | 710 |
+| 0.35 | 0.708 | 0.789 | 0.746 | 648 |
+| 0.40 | 0.753 | 0.775 | 0.764 | 599 |
+| 0.45 | 0.802 | 0.766 | 0.784 | 556 |
+| 0.50 | 0.828 | 0.751 | 0.787 | 528 |
+| 0.55 | 0.850 | 0.742 | 0.793 | 508 |
+| 0.60 | 0.877 | 0.734 | 0.799 | 487 |
+| 0.65 | 0.900 | 0.723 | 0.802 | 468 |
+| 0.70 | 0.927 | 0.716 | 0.808 | 450 |
+| 0.75 | 0.936 | 0.703 | 0.803 | 437 |
+| 0.80 | 0.946 | 0.692 | 0.800 | 426 |
+| 0.85 | 0.954 | 0.672 | 0.788 | 410 |
+| 0.90 | 0.964 | 0.641 | 0.770 | 387 |
 
-**Recommended threshold: 0.40** — chosen to keep recall at or above 0.80, since a human reviews every flagged claim before any action is taken; missing real fraud is a worse outcome than an extra claim going to review.
+**Recommended threshold: 0.25** (precision 0.605, recall 0.820) — the highest-F1 threshold that keeps recall at or above 0.80: a human reviews flagged claims, so missing fraud is worse than a false alarm.
 
 ## Plots
 
 - `roc_curve.png`
 - `pr_curve.png`
-- `confusion_matrix.png` (at threshold 0.40)
+- `confusion_matrix.png` (at threshold 0.25)
 
 ## Caveat
 

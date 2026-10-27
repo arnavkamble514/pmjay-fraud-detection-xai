@@ -44,6 +44,7 @@ STRUCTURED = [
 ]
 OCR_FEATURES = ["ocr_confidence", "ocr_amount_mismatch_pct", "ocr_amount_found"]
 TAMPER_FEATURES = ["tamper_score"]
+FORENSIC_FEATURES = ["noise_block_min_z", "noise_low_frac"]
 CATEGORICAL = ["diagnosis_code", "procedure", "state"]
 LABEL = "is_fraud"
 N_FOLDS = 5
@@ -51,8 +52,10 @@ N_FOLDS = 5
 VARIANTS = [
     ("A. Structured only", STRUCTURED),
     ("B. Structured + OCR", STRUCTURED + OCR_FEATURES),
-    ("C. Structured + OCR + tamper (full model)",
+    ("C. Structured + OCR + tamper CNN",
      STRUCTURED + OCR_FEATURES + TAMPER_FEATURES),
+    ("D. Structured + OCR + tamper CNN + noise forensics (full model)",
+     STRUCTURED + OCR_FEATURES + TAMPER_FEATURES + FORENSIC_FEATURES),
 ]
 
 
@@ -84,14 +87,16 @@ def main():
         print(f"  {name}: AUC {scores.mean():.4f} +/- {scores.std():.4f} "
               f"({len(feature_cols)} numeric features)")
 
-    auc_a, auc_b, auc_c = results[0][1], results[1][1], results[2][1]
+    auc_a, auc_b, auc_c, auc_d = (r[1] for r in results)
     gain_ocr = auc_b - auc_a
     gain_tamper = auc_c - auc_b
-    gain_total = auc_c - auc_a
+    gain_forensic = auc_d - auc_c
+    gain_total = auc_d - auc_a
 
-    print(f"\nOCR features added: {gain_ocr:+.4f} AUC")
-    print(f"Tamper CNN added:   {gain_tamper:+.4f} AUC")
-    print(f"Total image gain:   {gain_total:+.4f} AUC (over structured-only)")
+    print(f"\nOCR features added:      {gain_ocr:+.4f} AUC")
+    print(f"Tamper CNN added:        {gain_tamper:+.4f} AUC")
+    print(f"Noise forensics added:   {gain_forensic:+.4f} AUC")
+    print(f"Total image gain:        {gain_total:+.4f} AUC (over structured-only)")
 
     def judge(gain):
         if gain > 0.02:
@@ -105,16 +110,18 @@ def main():
 
     ocr_verdict = judge(gain_ocr)
     tamper_verdict = judge(gain_tamper)
-    total_verdict = judge(gain_total)
+    forensic_verdict = judge(gain_forensic)
     print(f"\nOCR verdict: {ocr_verdict}")
-    print(f"Tamper verdict: {tamper_verdict}")
+    print(f"Tamper CNN verdict: {tamper_verdict}")
+    print(f"Noise forensics verdict: {forensic_verdict}")
 
     # ---- chart ----
-    names = [r[0].split(". ", 1)[1] for r in results]
+    names = ["Structured", "+ OCR", "+ tamper CNN", "+ noise forensics"]
     means = [r[1] for r in results]
     stds = [r[2] for r in results]
-    plt.figure(figsize=(7, 4.5))
-    bars = plt.bar(names, means, yerr=stds, capsize=5, color=["#9fb3c8", "#5e8ab4", "#2a5783"])
+    plt.figure(figsize=(7.5, 4.5))
+    bars = plt.bar(names, means, yerr=stds, capsize=5,
+                   color=["#c3d0de", "#8fadcb", "#5e8ab4", "#2a5783"])
     plt.ylabel("Cross-validated AUC")
     plt.title("Ablation: does fusing OCR + tamper signal actually help?")
     plt.ylim(min(means) - 0.1, 1.0)
@@ -140,6 +147,10 @@ def main():
     lines += [
         f"\n**Adding OCR features: {gain_ocr:+.4f} AUC — {ocr_verdict}.**\n",
         f"**Adding the tamper CNN score: {gain_tamper:+.4f} AUC — {tamper_verdict}.**\n",
+        f"**Adding noise-forensics features: {gain_forensic:+.4f} AUC — {forensic_verdict}.**\n",
+        "Each step is cumulative, so its gain is what it adds on top of everything "
+        "before it. Gains smaller than the fold-to-fold std dev should not be "
+        "reported as real.\n",
         f"**Total gain from structured-only to the full model: {gain_total:+.4f} AUC.**\n",
         "## What this means\n",
     ]
@@ -171,10 +182,12 @@ def main():
     lines += [
         "## Caveat\n",
         "This test is on synthetic data from generate_synthetic_claims.py. "
-        "The synthetic document-tamper fraud type is specifically designed "
-        "to be caught by the tamper CNN, so any apparent benefit here may "
-        "not transfer to real-world documents with more varied tampering "
-        "patterns.\n",
+        "Both the synthetic forgeries and the noise-forensics features that "
+        "detect them were designed in this project. The noise-inconsistency "
+        "cue is a documented real-world forensic signal, and half the forgeries "
+        "deliberately hide it ('careful' style), but real forgeries vary far "
+        "more than this generator, so these gains may not transfer to real "
+        "bills.\n",
         f"\n![Ablation chart]({ABLATION_CHART.name})\n",
     ]
     ABLATION_REPORT.write_text("\n".join(lines))

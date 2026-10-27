@@ -20,6 +20,7 @@ Run:  python evaluate_model.py
 """
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,7 @@ from sklearn.metrics import (
 )
 
 HERE = Path(__file__).parent
-FUSED_CSV = HERE / "data" / "fused_features.csv"
+FUSED_CSV = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "data" / "fused_features.csv"
 EVAL_REPORT = HERE / "evaluation_report.md"
 
 FEATURES = [
@@ -43,12 +44,16 @@ FEATURES = [
     "typical_los", "amount_to_package_ratio", "los_ratio",
     "tamper_score", "ocr_confidence", "ocr_amount_mismatch_pct",
     "ocr_amount_found",
+    "noise_block_min_z", "noise_low_frac",
     "provider_mean_amount", "provider_claim_count",
 ]
 CATEGORICAL = ["diagnosis_code", "procedure", "state"]
 LABEL = "is_fraud"
 N_FOLDS = 5
-THRESHOLDS = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+# wide sweep: a recall target can need a low threshold, and a high-precision
+# policy can need a high one — a narrow grid hides both
+THRESHOLDS = [round(float(t), 2) for t in np.arange(0.10, 0.901, 0.05)]
+TARGET_RECALL = 0.80
 
 
 def make_model(scale_pos_weight):
@@ -113,14 +118,26 @@ def main():
     # pick the threshold that maximizes F1 among those with recall >= 0.80 —
     # for fraud screening we'd rather over-flag than under-flag, since a
     # human reviews the flagged queue anyway (never auto-reject)
-    candidates = [row for row in rows if row[2] >= 0.80] or rows
-    best = max(candidates, key=lambda row: row[3])
+    meets = [row for row in rows if row[2] >= TARGET_RECALL]
+    policy_met = bool(meets)
+    best = max(meets if policy_met else rows, key=lambda row: row[3])
     best_threshold = best[0]
     print(f"\nRecommended threshold: {best_threshold:.2f} "
           f"(precision {best[1]:.3f}, recall {best[2]:.3f}, f1 {best[3]:.3f})")
-    print("  -> chosen to keep recall >= 0.80: for fraud screening, a "
-          "human reviews flagged claims, so missing fraud is worse than "
-          "a false alarm")
+    if policy_met:
+        policy_note = (
+            f"the highest-F1 threshold that keeps recall at or above "
+            f"{TARGET_RECALL:.2f}: a human reviews flagged claims, so "
+            f"missing fraud is worse than a false alarm"
+        )
+    else:
+        policy_note = (
+            f"WARNING: no threshold in the sweep reaches recall "
+            f"{TARGET_RECALL:.2f} (best recall {max(r[2] for r in rows):.3f}). "
+            f"This is the highest-F1 threshold overall, so the recall "
+            f"target is NOT met"
+        )
+    print(f"  -> {policy_note}")
 
     # ---- 3. plots at the recommended threshold ----
     fpr, tpr, _ = roc_curve(y, oof_proba)
@@ -182,10 +199,8 @@ def main():
         marker = " **<- recommended**" if t == best_threshold else ""
         lines.append(f"| {t:.2f} | {p:.3f} | {r:.3f} | {f1:.3f} | {flagged} |{marker}")
     lines += [
-        f"\n**Recommended threshold: {best_threshold:.2f}** — chosen to "
-        f"keep recall at or above 0.80, since a human reviews every "
-        f"flagged claim before any action is taken; missing real fraud "
-        f"is a worse outcome than an extra claim going to review.\n",
+        f"\n**Recommended threshold: {best_threshold:.2f}** "
+        f"(precision {best[1]:.3f}, recall {best[2]:.3f}) — {policy_note}.\n",
         "## Plots\n",
         "- `roc_curve.png`\n- `pr_curve.png`\n- `confusion_matrix.png` "
         f"(at threshold {best_threshold:.2f})\n",
