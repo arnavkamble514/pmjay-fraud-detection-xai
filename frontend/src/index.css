@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "@fontsource/instrument-sans/400.css";
+@import "@fontsource/instrument-sans/500.css";
+@import "@fontsource/instrument-sans/600.css";
+@import "@fontsource/instrument-sans/700.css";
+
+@theme {
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+
+  --color-paper: #eef1ef;     /* cool ledger paper, the page */
+  --color-sheet: #ffffff;     /* panels sit on the paper like sheets */
+  --color-ink: #1b2a38;       /* body text */
+  --color-ink-soft: #586674;  /* secondary text */
+  --color-rule: #d3d9d6;      /* hairlines between rows */
+  --color-pen: #2450a6;       /* actions: fountain-pen blue */
+  --color-seal: #b23a33;      /* high risk, confirmed fraud, the stamp */
+  --color-ochre: #a8740f;     /* medium risk */
+  --color-leaf: #2e7a55;      /* low risk, cleared */
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-pen);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The one orchestrated motion: the decision stamp landing on the bill. */
+@keyframes stamp-land {
+  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-14deg) scale(1.9); }
+  60%  { opacity: 0.9; transform: translate(-50%, -50%) rotate(-11deg) scale(0.96); }
+  100% { opacity: 0.85; transform: translate(-50%, -50%) rotate(-12deg) scale(1); }
+}
+.stamp {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  opacity: 0.85;
+  border: 4px double currentColor;
+  border-radius: 10px;
+  padding: 0.35rem 1.1rem 0.45rem;
+  font-weight: 700;
+  font-size: clamp(1.1rem, 2.6vw, 1.9rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  text-align: center;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.stamp small {
+  display: block;
+  font-size: 0.42em;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  text-transform: none;
+}
+.stamp.landing { animation: stamp-land 420ms cubic-bezier(.2,.9,.3,1.2) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp.landing { animation: none; }
+}
+
+input[type="range"] { accent-color: var(--color-pen); }

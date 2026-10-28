@@ -19,9 +19,15 @@ CATEGORICAL = ["diagnosis_code", "procedure", "state"]
 IMAGE_FEATURES = {"tamper_score", "ocr_confidence", "ocr_amount_mismatch_pct", "ocr_amount_found",
                   "noise_block_min_z", "noise_low_frac"}
 
-# score -> band. Lower the top edge if you want to catch more fraud
-# at the cost of more false alarms (see Parth's threshold-tuning task).
-RISK_BANDS = [(0.30, "low"), (0.60, "medium"), (1.01, "high")]
+STRUCTURED_MODEL_PATH = HERE / "final_model_structured.json"
+STRUCTURED_COLUMNS_PATH = HERE / "feature_columns_structured.json"
+
+# score -> band, set from the out-of-fold threshold analysis (evaluation_report.md):
+# below 0.25 = low; 0.25-0.50 = medium (the recall >= 0.80 review threshold);
+# 0.50 and above = high (precision 0.83, recall 0.75 at 0.50).
+# These cutoffs were tuned on the full model; for claims scored without a
+# bill image (structured-only model) they are indicative only.
+RISK_BANDS = [(0.25, "low"), (0.50, "medium"), (1.01, "high")]
 
 # technical feature name -> (human label, sentence template).
 # {value} is filled with the claim's own value for that feature.
@@ -32,8 +38,8 @@ FEATURE_EXPLANATIONS = {
     "ocr_confidence": "OCR could read the bill with {value:.2f} confidence",
     "ocr_amount_mismatch_pct": "the OCR-read amount differs from the claimed amount by {value:.0%}",
     "ocr_amount_found": "an amount could {not_}be read directly off the bill image",
-    "noise_block_min_z": "part of the bill is {value:.1f} units quieter than its scan noise (possible pasted patch)",
-    "noise_low_frac": "{value:.1%} of the bill's background has unusually low scan noise",
+    "noise_block_min_z": "noise check: the quietest patch of the bill scores {value:.1f} (pasted patches score far below normal)",
+    "noise_low_frac": "noise check: {value:.1%} of the bill's background is unusually quiet",
     "claimed_amount": "claimed amount is ₹{value:,.0f}",
     "patient_age": "patient age is {value:.0f}",
     "provider_mean_amount": "this provider's average claim is ₹{value:,.0f}",
@@ -64,6 +70,14 @@ class ClaimScorer:
         self.procedure_lookup = _load_json(PROCEDURE_LOOKUP_PATH)
         self.provider_lookup = _load_json(PROVIDER_STATS_PATH)
         self.explainer = shap.TreeExplainer(self.model)
+        # structured-only fallback for claims with no bill image (written by
+        # train_final_model.py); without it, no-image claims are refused
+        self.model_s = self.columns_s = self.explainer_s = None
+        if STRUCTURED_MODEL_PATH.exists() and STRUCTURED_COLUMNS_PATH.exists():
+            self.model_s = xgb.XGBClassifier()
+            self.model_s.load_model(STRUCTURED_MODEL_PATH)
+            self.columns_s = _load_json(STRUCTURED_COLUMNS_PATH)
+            self.explainer_s = shap.TreeExplainer(self.model_s)
         self._tamper_model = None
         self._tamper_img_size = None
 
@@ -162,30 +176,44 @@ class ClaimScorer:
         have them (e.g. from fuse_features.py)."""
         row, image_checked = self._build_row(claim, image_path)
 
+        # The full model was trained only on claims WITH a bill image, so it
+        # never saw missing image features; its score for a no-image claim
+        # would be arbitrary. Use the structured-only model instead.
+        if image_checked:
+            model, explainer, columns = self.model, self.explainer, self.feature_columns
+            model_used = "full model (structured + bill image)"
+        elif self.model_s is not None:
+            model, explainer, columns = self.model_s, self.explainer_s, self.columns_s
+            model_used = "structured-only model (no bill image provided)"
+        else:
+            raise ValueError(
+                "No bill image given and no structured-only model found. Re-run "
+                "train_final_model.py (it writes final_model_structured.json), or "
+                "pass image_path / the image features."
+            )
+
         df_row = pd.DataFrame([row])
         df_enc = pd.get_dummies(df_row[CATEGORICAL], prefix=CATEGORICAL)
         X = pd.concat([df_row, df_enc], axis=1)
         # missing one-hot category columns mean "not this category" -> 0,
         # but a missing NUMERIC feature means "unknown" -> NaN, never 0
         # (0 is a real value that would look like a checked, clean bill)
-        X = X.reindex(columns=self.feature_columns)
+        X = X.reindex(columns=columns)
         dummy_cols = [c for c in X.columns
                       if any(c.startswith(p + "_") for p in CATEGORICAL)]
         X[dummy_cols] = X[dummy_cols].fillna(0)
         X = X.infer_objects()
 
-        proba = float(self.model.predict_proba(X)[0, 1])
+        proba = float(model.predict_proba(X)[0, 1])
         risk_band = next(band for threshold, band in RISK_BANDS if proba < threshold)
 
-        shap_values = self.explainer.shap_values(X)[0]
+        shap_values = explainer.shap_values(X)[0]
         order = np.argsort(-np.abs(shap_values))
         top_reasons = []
         for i in order[:3]:
-            feat = self.feature_columns[i]
+            feat = columns[i]
             contribution = float(shap_values[i])
-            if feat in IMAGE_FEATURES and not image_checked:
-                text = "the bill image was not checked for this claim (no image provided)"
-            elif FEATURE_EXPLANATIONS.get(feat):
+            if FEATURE_EXPLANATIONS.get(feat):
                 template = FEATURE_EXPLANATIONS[feat]
                 value = row.get(feat, X.iloc[0][feat])
                 text = template.format(
@@ -207,6 +235,7 @@ class ClaimScorer:
             "risk_band": risk_band,
             "top_reasons": top_reasons,
             "image_checked": image_checked,
+            "model_used": model_used,
         }
 
 
@@ -241,6 +270,7 @@ def _smoke_test():
         result = score_claim(claim)
         print(f"  score={result['score']}  risk={result['risk_band']}  "
               f"image_checked={result['image_checked']}")
+        print(f"  model: {result['model_used']}")
         for r in result["top_reasons"]:
             print(f"    [{r['direction']:>11}, impact {r['impact']}] {r['detail']}")
 

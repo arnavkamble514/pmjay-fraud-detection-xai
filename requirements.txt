@@ -12,3 +12,7 @@ matplotlib
 kaggle
 jupyter
 python-dotenv
+
+fastapi
+uvicorn
+python-multipart
