@@ -1,20 +1,3 @@
-"""
-Recompute ONLY the OCR columns of data/fused_features.csv using 3x-upscaled
-OCR (see upscale_test.py: exact amount reads 28% -> 93%).
-
-Tamper CNN scores and noise-forensics features are unchanged (same images,
-and they must see the original pixels), so they are kept as they are. This
-skips the other ~25 minutes fuse_features.py would spend re-computing them.
-
-Safe to stop and restart: progress is saved every 25 bills to
-data/ocr_refresh_partial.csv and picked up on the next run.
-The old table is kept as data/fused_features_ocr1x.csv.
-
-Columns updated: ocr_confidence, ocr_amount_mismatch_pct, ocr_amount_found.
-
-Run:  python refresh_ocr.py
-"""
-
 import shutil
 import sys
 import time

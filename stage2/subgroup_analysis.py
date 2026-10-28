@@ -1,38 +1,3 @@
-"""
-Stage 2, step 6 — subgroup analysis: does each image signal catch the
-fraud it is supposed to catch?
-
-Overall AUC averages over every claim, so ~70 field-edit bills out of
-3000 can barely move it even if a detector catches them all. This script
-looks at each fraud subgroup separately:
-
-  1. Raw signal: how well does each image feature ALONE (tamper CNN score,
-     noise-forensics features) separate each subgroup from genuine
-     claims? No model involved — tests the detector itself.
-  2. Recall per subgroup, out-of-fold, for three cumulative models at one
-     fixed threshold:
-        B  structured + OCR
-        C  + tamper CNN
-        D  + noise forensics (full model)
-  3. ROC AUC and PR-AUC (average precision) overall for B, C, D. PR-AUC
-     is more sensitive to rare positives than ROC AUC.
-
-Subgroups:
-  genuine            is_fraud == 0
-  amount_tamper      bill amount edited (OCR can catch this)
-  field_tamper       other printed field edited (only image forensics can)
-  other_fraud        fraud with an untouched bill (upcoding etc.)
-  naive / careful    tampered bills split by forger style (generator v3)
-
-Success criterion, fixed before results: an image signal counts as useful
-if it raises field-edit recall by at least 20 points over the model
-without it.
-
-Needs data/fused_features.csv from fuse_features.py.
-
-Run:  python subgroup_analysis.py [threshold]     (default 0.40)
-"""
-
 import sys
 from pathlib import Path
 

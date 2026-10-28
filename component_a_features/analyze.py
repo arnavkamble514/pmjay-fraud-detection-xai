@@ -1,18 +1,3 @@
-"""
-Component A — feature blueprint from real fraud data.
-
-This component produces no deployable model. It answers one question:
-which engineered features actually carry fraud signal on real claims
-data? The answer becomes the blueprint for which columns to build into
-the synthetic PM-JAY dataset in Stage 2.
-
-Uses the Medicare provider fraud dataset. Note the label there is
-per-PROVIDER, not per-claim, so we aggregate claims up to the provider
-level before training — matching how the dataset is actually labelled.
-
-Run:  python analyze.py
-"""
-
 import subprocess
 from pathlib import Path
 

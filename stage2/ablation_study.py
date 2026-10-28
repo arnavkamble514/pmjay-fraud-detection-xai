@@ -1,27 +1,3 @@
-"""
-Stage 2, step 5 — ablation study.
-
-The project's core claim is that fusing structured claim data + OCR +
-tamper-CNN output beats any one signal alone. This script tests that
-claim directly instead of assuming it: trains the same model three
-times, each with a different feature subset, and compares cross-
-validated AUC across them.
-
-  A. structured only       (amounts, dates, provider history — no
-                             OCR, no image)
-  B. structured + OCR      (+ ocr_confidence, ocr_amount_mismatch_pct,
-                             ocr_amount_found)
-  C. structured + OCR +    (+ tamper_score — the full model, same as
-     tamper                 train_final_model.py)
-
-If C isn't meaningfully better than A, the image pipeline isn't
-pulling its weight and that's worth saying plainly, not hiding.
-
-Needs data/fused_features.csv.
-
-Run:  python ablation_study.py
-"""
-
 from pathlib import Path
 
 import numpy as np

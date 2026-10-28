@@ -1,15 +1,3 @@
-"""
-Component C — inference module.
-
-This is the deliverable Stage 2 imports. score_tamper() returns the
-numeric feature that goes into the fused table; gradcam_heatmap()
-produces the visual overlay your dashboard shows to auditors.
-
-Load once, reuse:
-    detector = TamperDetector()
-    detector.score_tamper("bill.png")
-"""
-
 from pathlib import Path
 
 import cv2

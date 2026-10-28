@@ -1,16 +1,3 @@
-"""
-Component C — document tamper detection CNN.
-
-Fine-tunes a pretrained ResNet-18 on CASIA 2.0 to classify images as
-authentic vs tampered. Mirrors the approach in Nataraj et al. (2021),
-paper #8 in your literature survey, which used a ResNet backbone for
-the same task.
-
-Saves tamper_cnn.pth, which Stage 2 loads to score generated documents.
-
-Run:  python train.py
-"""
-
 import json
 import subprocess
 import time

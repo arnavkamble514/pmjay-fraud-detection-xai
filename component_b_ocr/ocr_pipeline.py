@@ -1,15 +1,3 @@
-"""
-Component B — OCR pipeline.
-
-This module is the deliverable. Stage 2 imports run_ocr() and
-extract_claim_fields() from here and runs them on every synthetic
-document image it generates.
-
-EasyOCR is pretrained, so nothing is trained here. What we do is
-tune preprocessing and field-extraction rules until extraction is
-reliable on real medical documents (benchmarked in run.py).
-"""
-
 import re
 import cv2
 import easyocr

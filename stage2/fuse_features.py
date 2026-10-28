@@ -1,18 +1,3 @@
-"""
-Stage 2, step 2 — fusion.
-
-Runs every synthetic claim's bill image through Component B (OCR) and
-Component C (tamper CNN), cross-checks OCR output against the claim
-record, and writes ONE merged feature table. This table is what trains
-the final model in train_final_model.py.
-
-Loads the tamper CNN directly from tamper_cnn.pth (same architecture +
-ELA preprocessing as train.py) rather than importing tamper_cnn.py, so
-this script doesn't depend on that module's internal class API.
-
-Run:  python fuse_features.py
-"""
-
 import io
 import re
 import sys

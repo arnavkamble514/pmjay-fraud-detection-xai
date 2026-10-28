@@ -1,13 +1,3 @@
-"""
-Component B — benchmark run.
-
-Downloads the medical OCR dataset, runs the pipeline over it both with
-and without preprocessing, and writes a comparison so you can report
-which configuration you chose and why.
-
-Run:  python run.py
-"""
-
 import json
 import os
 import subprocess

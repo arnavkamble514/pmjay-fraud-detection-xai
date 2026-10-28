@@ -1,24 +1,3 @@
-"""
-Stage 2, step 4 — proper evaluation.
-
-train_final_model.py reports metrics from ONE 80/20 split, so a lucky
-split could be inflating the numbers. This script fixes that:
-
-  1. 5-fold stratified cross-validation — same model, same features,
-     retrained fresh on each fold — to see whether AUC holds up across
-     different splits instead of just the one we happened to report.
-  2. Out-of-fold predictions (every claim scored only by a model that
-     never saw it in training) used to sweep classification thresholds
-     from 0.30 to 0.70, so you can justify whatever threshold you pick
-     instead of defaulting to 0.5 with no reasoning.
-  3. ROC curve, precision-recall curve, and a confusion matrix at the
-     chosen threshold, saved as PNGs for the report.
-
-Needs data/fused_features.csv (same as train_final_model.py).
-
-Run:  python evaluate_model.py
-"""
-
 import json
 import sys
 from pathlib import Path

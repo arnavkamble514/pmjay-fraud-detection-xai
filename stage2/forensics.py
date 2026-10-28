@@ -1,23 +1,3 @@
-"""
-Image-forensics features for bill images — no neural network.
-
-A scanned bill carries a fairly uniform layer of sensor/paper noise. When
-someone pastes a patch over a printed value (white-out and retype), the
-patch usually lacks that noise, so it shows up as a cluster of unusually
-"quiet" background blocks. This noise-inconsistency check is a standard
-image-forensics cue, and unlike the CASIA-trained CNN it works at full
-resolution, so a one-line edit isn't shrunk away.
-
-Two features, both computed on background (non-text) blocks:
-  noise_block_min_z  how far the quietest block falls below the page's
-                     typical noise level, in robust z-units
-  noise_low_frac     fraction of background blocks with less than half
-                     the typical noise
-
-Used by fuse_features.py (training data), predict.py (new claims), and
-ela_diagnostic.py, so all three compute exactly the same thing.
-"""
-
 import numpy as np
 from PIL import Image, ImageFilter
 

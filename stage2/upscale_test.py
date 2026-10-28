@@ -1,25 +1,3 @@
-"""
-Does upscaling the bill before OCR make amount-reading better?
-
-Takes a fixed random sample of genuine bills, re-runs OCR on 2x and 3x
-upscaled copies, and compares how often the amount is read correctly
-against the stored 1x result in data/fused_features.csv (no need to
-re-run 1x). Also compares two amount parsers on the same OCR text:
-  current  parse_amount() from fuse_features.py
-  last     label-free: the LAST plausible number in the text, after
-           dropping any word starting with "CL" (claim-id fragments).
-           The amount is the last field on the bill.
-
-Metrics per variant (genuine bills only, claimed amount is the truth):
-  exact    OCR amount within 1% of the claimed amount
-  wild     OCR amount off by 50% or more  (these swamp the tamper signal)
-  none     no amount found
-
-Read-only: writes upscale_report.md, changes nothing else.
-
-Run:  python upscale_test.py [n_bills]      (default 60; ~2 OCR runs per bill)
-"""
-
 import re
 import sys
 import tempfile

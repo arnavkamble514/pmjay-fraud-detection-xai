@@ -1,14 +1,3 @@
-"""
-Stage 2, step 3 — final model.
-
-Trains the deployable XGBoost fraud classifier on the fused feature
-table (structured claim data + OCR results + tamper CNN score), then
-runs SHAP for per-claim and global explainability. This is the model
-the ClaimGuard dashboard actually calls.
-
-Run:  python train_final_model.py
-"""
-
 import json
 from pathlib import Path
 

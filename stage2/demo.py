@@ -1,17 +1,3 @@
-"""
-Stage 3 — minimal Streamlit demo.
-
-One page: fill in a claim, optionally upload a bill image, see the
-fraud score, risk band, and the top reasons behind it. This is the
-smallest possible thing that proves the pipeline end to end in a UI,
-not the final app — Purva builds the review queue / batch upload /
-overview pages around this.
-
-Run (from stage2/, with claimguard-env active):
-    pip install streamlit   # if not already installed
-    streamlit run app.py
-"""
-
 import tempfile
 from pathlib import Path
 

@@ -1,13 +1,3 @@
-"""
-Quick sanity check (about 2 minutes) — run BEFORE the full fusion.
-
-Scores 60 tampered and 60 clean bills with the tamper CNN, and reads
-the amount off 20 tampered bills with OCR. Tells you whether the two
-image signals actually work on the generated bills.
-
-Run:  python check_signal.py
-"""
-
 import sys
 from pathlib import Path
 

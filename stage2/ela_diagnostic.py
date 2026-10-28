@@ -1,38 +1,3 @@
-"""
-Stage 2, step 7 — ELA diagnostic: is the tamper signal in the images at all?
-
-subgroup_analysis.py showed the tamper CNN barely separates tampered bills
-from genuine ones (AUC ~0.65). That has two possible causes, and they need
-opposite fixes:
-
-  1. The signal is in the image, but the CNN pipeline loses it (it was
-     trained on CASIA photos, and resizing an 800x600 bill to CNN input
-     size can wash out a one-line edit).          -> fix the detector
-  2. The generator's edits leave almost no detectable trace.
-                                                   -> fix the generator
-
-This script skips the CNN entirely. It computes simple full-resolution
-Error Level Analysis (ELA) statistics per image — "is any block of text
-compressed differently from the rest?" — and measures how well each one
-separates amount-edit and field-edit bills from genuine bills.
-
-It also runs a SHORTCUT CHECK: the JPEG save quality of each file. If
-quality alone separates tampered from genuine bills, the generator has a
-tell that any detector could be scoring instead of the actual edit.
-
-Decision rule, fixed before looking at results (field-edit bills):
-  best local ELA feature AUC >= 0.85  -> signal exists; the CNN pipeline
-                                         is losing it
-  0.65 - 0.85                         -> a weak trace exists
-  below 0.65                          -> the edits leave almost no trace;
-                                         fix the generator first
-
-Writes data/ela_features.csv (one row per claim, so these features can be
-tested as model inputs later) and ela_report.md.
-
-Run:  python ela_diagnostic.py
-"""
-
 import io
 import sys
 from pathlib import Path

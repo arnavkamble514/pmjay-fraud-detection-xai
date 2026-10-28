@@ -1,35 +1,3 @@
-"""
-Stage 3 — serving the final model.
-
-The one function everything else (Streamlit app, audit log, batch
-scoring) calls: give it a claim, get back a fraud score, a risk band,
-and plain-language reasons. This is the file Purva and Hitakshi build
-against, so its interface (score_claim) should not change without
-telling them.
-
-Needs, from a completed Stage 2 run in this folder:
-  final_model.json, feature_columns.json, procedure_lookup.json,
-  provider_stats.json   (all written by train_final_model.py)
-  ../component_c_tamper_cnn/tamper_cnn.pth   (only if you pass image_path)
-
-Usage:
-    from predict import score_claim
-
-    result = score_claim({
-        "patient_age": 45,
-        "procedure": "Laparoscopic cholecystectomy",
-        "diagnosis_code": "K80.2",
-        "state": "Maharashtra",
-        "provider_id": "H003",
-        "claimed_amount": 52000,
-        "length_of_stay": 3,
-    })
-    # result = {"score": 0.81, "risk_band": "high", "top_reasons": [...]}
-
-Run directly for a smoke test on a couple of made-up claims:
-    python predict.py
-"""
-
 import json
 import sys
 from pathlib import Path

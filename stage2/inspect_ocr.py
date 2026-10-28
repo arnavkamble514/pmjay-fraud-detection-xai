@@ -1,13 +1,3 @@
-"""
-Diagnostic: why does OCR amount reading fail on genuine v3 bills?
-
-Takes genuine bills where the OCR-read amount is wildly off (mismatch >= 50%),
-re-runs OCR on a few, and prints what the OCR actually saw around the amount
-next to what parse_amount() picked. Read-only; changes nothing.
-
-Run:  python inspect_ocr.py [how_many]     (default 6)
-"""
-
 import sys
 from pathlib import Path
 
